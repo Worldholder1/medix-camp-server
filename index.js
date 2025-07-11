@@ -48,7 +48,24 @@ async function run() {
       res.send(result);
     });
 
-   
+    // Existing GET /users
+    app.get("/users", async (req, res) => {
+      const { email } = req.query;
+
+      try {
+        if (email) {
+          const user = await usersCollection.findOne({ email });
+          if (!user) return res.status(404).send({ message: "User not found" });
+          return res.send(user);
+        }
+
+        // No email? Return all users
+        const users = await usersCollection.find().toArray();
+        res.send(users);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch users", error });
+      }
+    });
 
 
     // Send a ping to confirm a successful connection
