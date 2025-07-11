@@ -85,7 +85,15 @@ async function run() {
       res.send(result);
     });
 
-    
+    // GET /camps - list all camps
+    app.get("/camps", async (req, res) => {
+      try {
+        const camps = await campsCollection.find().toArray();
+        res.send(camps);
+      } catch (err) {
+        res.status(500).send({ message: "Failed to fetch camps", error: err });
+      }
+    });
 
 
     // Send a ping to confirm a successful connection
