@@ -31,6 +31,9 @@ async function run() {
 
     const db = client.db("medixCampDB");
     const usersCollection = db.collection("users");
+    const campsCollection = db.collection("camps");
+
+    // ========== USERS ROUTES ==========
 
     // POST /users - Save new user
     app.post("/users", async (req, res) => {
@@ -66,6 +69,23 @@ async function run() {
         res.status(500).send({ message: "Failed to fetch users", error });
       }
     });
+
+    // ========== CAMPS ROUTES ==========
+
+    // POST /camps
+    app.post("/camps", async (req, res) => {
+      const camp = req.body;
+
+      if (!camp.title || !camp.date || !camp.time || !camp.images?.length) {
+        return res.status(400).send({ message: "Missing required fields" });
+      }
+
+      camp.createdAt = new Date().toISOString();
+      const result = await campsCollection.insertOne(camp);
+      res.send(result);
+    });
+
+    
 
 
     // Send a ping to confirm a successful connection
