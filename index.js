@@ -32,7 +32,23 @@ async function run() {
     const db = client.db("medixCampDB");
     const usersCollection = db.collection("users");
 
-    
+    // POST /users - Save new user
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      user.role = "user";
+      user.created_at = new Date().toISOString();
+      user.last_log_in = new Date().toISOString();
+
+      const existing = await usersCollection.findOne({ email: user.email });
+      if (existing) {
+        return res.status(409).send({ message: "User already exists" });
+      }
+
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
+    });
+
+   
 
 
     // Send a ping to confirm a successful connection
