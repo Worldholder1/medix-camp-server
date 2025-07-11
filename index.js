@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -32,6 +32,7 @@ async function run() {
     const db = client.db("medixCampDB");
     const usersCollection = db.collection("users");
     const campsCollection = db.collection("camps");
+    const registrationsCollection = db.collection("registrations");
 
     // ========== USERS ROUTES ==========
 
@@ -94,6 +95,21 @@ async function run() {
         res.status(500).send({ message: "Failed to fetch camps", error: err });
       }
     });
+
+    // single camp get method
+
+    app.get("/camps/:id", async (req, res) => {
+      const id = req.params.id;
+      try {
+        const camp = await campsCollection.findOne({ _id: new ObjectId(id) });
+        if (!camp) return res.status(404).send({ message: "Camp not found" });
+        res.send(camp);
+      } catch (err) {
+        res.status(500).send({ message: "Error fetching camp", error: err });
+      }
+    });
+
+    
 
 
     // Send a ping to confirm a successful connection
