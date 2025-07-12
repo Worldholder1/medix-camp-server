@@ -109,7 +109,22 @@ async function run() {
       }
     });
 
-    
+    // PUT /camps/:id - Update a camp
+    app.put("/camps/:id", async (req, res) => {
+      const id = req.params.id
+      const updatedCamp = req.body
+      try {
+        const result = await campsCollection.updateOne({ _id: new ObjectId(id) }, { $set: updatedCamp })
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ message: "Camp not found or no changes made" })
+        }
+        res.send({ message: "Camp updated successfully", modifiedCount: result.modifiedCount })
+      } catch (error) {
+        res.status(500).send({ message: "Failed to update camp", error })
+      }
+    })
+
+   
 
 
     // Send a ping to confirm a successful connection
