@@ -124,7 +124,23 @@ async function run() {
       }
     })
 
-   
+    // DELETE /camps/:id - Delete a camp
+    app.delete("/camps/:id", async (req, res) => {
+      const id = req.params.id
+      try {
+        const result = await campsCollection.deleteOne({ _id: new ObjectId(id) })
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: "Camp not found" })
+        }
+        // Also delete associated registrations
+        await registrationsCollection.deleteMany({ campId: id })
+        res.send({ message: "Camp and associated registrations deleted successfully" })
+      } catch (error) {
+        res.status(500).send({ message: "Failed to delete camp", error })
+      }
+    })
+
+    
 
 
     // Send a ping to confirm a successful connection
