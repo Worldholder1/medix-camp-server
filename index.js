@@ -140,6 +140,33 @@ async function run() {
       }
     })
 
+    // ================= REGISTRATIONS =================
+
+    // app/post methode for joincamp registration
+    app.post("/registrations", async (req, res) => {
+      const registration = req.body;
+      registration.paymentStatus = "unpaid";
+      registration.confirmationStatus = "pending";
+      registration.createdAt = new Date().toISOString();
+
+      try {
+        const insertResult = await registrationsCollection.insertOne(registration);
+
+        // Increment participant count
+        const updateResult = await campsCollection.updateOne(
+          { _id: new ObjectId(registration.campId) },
+          { $inc: { participant_count: 1 } }
+        );
+
+        res.send({
+          registrationId: insertResult.insertedId,
+          updatedCount: updateResult.modifiedCount,
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to register", error });
+      }
+    });
+
     
 
 
