@@ -102,48 +102,53 @@ async function run() {
     // Camp Related APIs
     // ====================================================================
 
-    // POST /camps
-    app.post("/camps", async (req, res) => {
-      const camp = req.body;
-
-      if (!camp.title || !camp.date || !camp.time || !camp.images?.length) {
-        return res.status(400).send({ message: "Missing required fields" });
-      }
-
-      camp.createdAt = new Date().toISOString();
-      const result = await campsCollection.insertOne(camp);
-      res.send(result);
-    });
-
-    // GET /camps - list all camps
+    //  Get all camps
     app.get("/camps", async (req, res) => {
       try {
-        const camps = await campsCollection.find().toArray();
-        res.send(camps);
+        const result = await campsCollection.find().toArray()
+        res.send(result)
       } catch (err) {
-        res.status(500).send({ message: "Failed to fetch camps", error: err });
+        res.status(500).send({ message: "Failed to fetch camps", error: err })
       }
-    });
+    })
 
-    // single camp get method
-
+    // Get a single camp by ID
     app.get("/camps/:id", async (req, res) => {
-      const id = req.params.id;
+      const id = req.params.id
       try {
-        const camp = await campsCollection.findOne({ _id: new ObjectId(id) });
-        if (!camp) return res.status(404).send({ message: "Camp not found" });
-        res.send(camp);
+        const query = { _id: new ObjectId(id) }
+        const camp = await campsCollection.findOne(query)
+        if (!camp) return res.status(404).send({ message: "Camp not found" })
+        res.send(camp)
       } catch (err) {
-        res.status(500).send({ message: "Error fetching camp", error: err });
+        res.status(500).send({ message: "Error fetching camp", error: err })
       }
-    });
+    })
 
-    // PUT /camps/:id - Update a camp
+    // Add a new camp (Organizer)
+    app.post("/camps", async (req, res) => {
+      const camp = req.body
+      if (!camp.title || !camp.date || !camp.time || !camp.images?.length) {
+        return res.status(400).send({ message: "Missing required fields" })
+      }
+      camp.createdAt = new Date().toISOString() // Add creation timestamp
+      const result = await campsCollection.insertOne(camp)
+      res.send(result)
+    })
+
+    // Update a camp (Organizer)
     app.put("/camps/:id", async (req, res) => {
       const id = req.params.id
       const updatedCamp = req.body
+      const filter = { _id: new ObjectId(id) }
+      const options = { upsert: true }
+      const updateDoc = {
+        $set: {
+          ...updatedCamp,
+        },
+      }
       try {
-        const result = await campsCollection.updateOne({ _id: new ObjectId(id) }, { $set: updatedCamp })
+        const result = await campsCollection.updateOne(filter, updateDoc, options)
         if (result.modifiedCount === 0) {
           return res.status(404).send({ message: "Camp not found or no changes made" })
         }
@@ -153,60 +158,71 @@ async function run() {
       }
     })
 
-    // DELETE /camps/:id - Delete a camp
+    // Delete a camp (Organizer)
     app.delete("/camps/:id", async (req, res) => {
       const id = req.params.id
+      const query = { _id: new ObjectId(id) }
       try {
-        const result = await campsCollection.deleteOne({ _id: new ObjectId(id) })
+        const result = await campsCollection.deleteOne(query)
         if (result.deletedCount === 0) {
           return res.status(404).send({ message: "Camp not found" })
         }
-        // Also delete associated registrations
-        await registrationsCollection.deleteMany({ campId: id })
+        // Also delete associated registrations for the deleted camp
+        await registrationsCollection.deleteMany({ camp_id: id })
         res.send({ message: "Camp and associated registrations deleted successfully" })
       } catch (error) {
         res.status(500).send({ message: "Failed to delete camp", error })
       }
     })
 
-    // ================= REGISTRATIONS =================
-    // app/post methode for joincamp registration
+
+    // ====================================================================
+    // Registration Related APIs
+    // ====================================================================
+
+    // Add a new registration
     app.post("/registrations", async (req, res) => {
-      const registration = req.body;
-      registration.paymentStatus = "unpaid";
-      registration.confirmationStatus = "pending";
-      registration.createdAt = new Date().toISOString();
-
+      const registration = req.body
+      registration.paymentStatus = "unpaid"
+      registration.confirmationStatus = "pending"
+      registration.createdAt = new Date().toISOString() 
       try {
-        const insertResult = await registrationsCollection.insertOne(registration);
-
-        // Increment participant count
+        const insertResult = await registrationsCollection.insertOne(registration)
+        // Increment participant count in the corresponding camp
         const updateResult = await campsCollection.updateOne(
-          { _id: new ObjectId(registration.campId) },
-          { $inc: { participant_count: 1 } }
-        );
-
+          { _id: new ObjectId(registration.camp_id) },
+          { $inc: { participant_count: 1 } },
+        )
         res.send({
           registrationId: insertResult.insertedId,
           updatedCount: updateResult.modifiedCount,
-        });
+        })
       } catch (error) {
-        res.status(500).send({ message: "Failed to register", error });
+        res.status(500).send({ message: "Failed to register", error })
       }
-    });
+    })
 
-    // app/get methode for joincamp registration
+     // Get registrations by camp ID (for organizers to manage registered camps)
+    app.get("/registrations/camp/:campId", async (req, res) => {
+      const campId = req.params.campId
+      const query = { camp_id: campId }
+      const result = await registrationsCollection.find(query).toArray()
+      res.send(result)
+    })
 
+    // Get all registrations or by participant email
     app.get("/registrations", async (req, res) => {
-      const { email } = req.query;
+      const email = req.query.email
       try {
-        const filter = email ? { participantEmail: email } : {};
-        const result = await registrationsCollection.find(filter).toArray();
-        res.send(result);
+        const filter = email ? { participant_email: email } : {} // Filter by email if provided
+        const result = await registrationsCollection.find(filter).toArray()
+        res.send(result)
       } catch (err) {
-        res.status(500).send({ message: "Failed to fetch registrations", error: err });
+        res.status(500).send({ message: "Failed to fetch registrations", error: err })
       }
-    });
+    })
+
+   
 
 
     // Send a ping to confirm a successful connection
