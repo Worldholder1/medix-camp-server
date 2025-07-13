@@ -34,44 +34,68 @@ async function run() {
     const campsCollection = db.collection("camps");
     const registrationsCollection = db.collection("registrations");
 
-    // ========== USERS ROUTES ==========
+    // ====================================================================
+    // User Related APIs
+    // ====================================================================
 
-    // POST /users - Save new user
-    app.post("/users", async (req, res) => {
-      const user = req.body;
-      user.role = "user";
-      user.created_at = new Date().toISOString();
-      user.last_log_in = new Date().toISOString();
-
-      const existing = await usersCollection.findOne({ email: user.email });
-      if (existing) {
-        return res.status(409).send({ message: "User already exists" });
-      }
-
-      const result = await usersCollection.insertOne(user);
-      res.send(result);
-    });
-
-    // Existing GET /users
+    // Get all users or a specific user by email
     app.get("/users", async (req, res) => {
-      const { email } = req.query;
-
-      try {
-        if (email) {
-          const user = await usersCollection.findOne({ email });
-          if (!user) return res.status(404).send({ message: "User not found" });
-          return res.send(user);
-        }
-
-        // No email? Return all users
-        const users = await usersCollection.find().toArray();
-        res.send(users);
-      } catch (error) {
-        res.status(500).send({ message: "Failed to fetch users", error });
+      const email = req.query.email
+      if (email) {
+        const query = { email: email }
+        const user = await usersCollection.findOne(query)
+        if (!user) return res.status(404).send({ message: "User not found" })
+        return res.send(user)
       }
-    });
+      const result = await usersCollection.find().toArray()
+      res.send(result)
+    })
 
-    // ========== CAMPS ROUTES ==========
+    // Get a single user by email (for client-side hooks)
+    app.get("/users/:email", async (req, res) => {
+      const email = req.params.email
+      const query = { email: email }
+      const user = await usersCollection.findOne(query)
+      res.send(user)
+    })
+
+    // Create a new user (on registration/login)
+    app.post("/users", async (req, res) => {
+      const user = req.body
+      user.role = "user"
+      user.created_at = new Date().toISOString()
+      user.last_log_in = new Date().toISOString()
+      const query = { email: user.email }
+      const existingUser = await usersCollection.findOne(query)
+      if (existingUser) {
+        return res.status(409).send({ message: "User already exists", insertedId: null })
+      }
+      const result = await usersCollection.insertOne(user)
+      res.send(result)
+    })
+
+    // Update user profile (Organizer/Participant)
+    app.put("/users/:id", async (req, res) => {
+      const id = req.params.id
+      const { name, email, photo, phone } = req.body 
+      const filter = { _id: new ObjectId(id) }
+      const updateDoc = {
+        $set: {
+          name: name,
+          email: email,
+          photo: photo,
+          phone: phone, // Phone field included for update
+        },
+      }
+      const result = await usersCollection.updateOne(filter, updateDoc)
+      res.send(result)
+    })
+
+    
+
+    // ====================================================================
+    // Camp Related APIs
+    // ====================================================================
 
     // POST /camps
     app.post("/camps", async (req, res) => {
@@ -141,7 +165,6 @@ async function run() {
     })
 
     // ================= REGISTRATIONS =================
-
     // app/post methode for joincamp registration
     app.post("/registrations", async (req, res) => {
       const registration = req.body;
@@ -167,7 +190,18 @@ async function run() {
       }
     });
 
-    
+    // app/get methode for joincamp registration
+
+    app.get("/registrations", async (req, res) => {
+      const { email } = req.query;
+      try {
+        const filter = email ? { participantEmail: email } : {};
+        const result = await registrationsCollection.find(filter).toArray();
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ message: "Failed to fetch registrations", error: err });
+      }
+    });
 
 
     // Send a ping to confirm a successful connection
