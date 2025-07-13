@@ -180,12 +180,32 @@ async function run() {
     // Registration Related APIs
     // ====================================================================
 
+     // Get all registrations or by participant email
+    app.get("/registrations", async (req, res) => {
+      const email = req.query.email
+      try {
+        const filter = email ? { participant_email: email } : {} // Filter by email if provided
+        const result = await registrationsCollection.find(filter).toArray()
+        res.send(result)
+      } catch (err) {
+        res.status(500).send({ message: "Failed to fetch registrations", error: err })
+      }
+    })
+
+    // Get registrations by camp ID (for organizers to manage registered camps)
+    app.get("/registrations/camp/:campId", async (req, res) => {
+      const campId = req.params.campId
+      const query = { camp_id: campId }
+      const result = await registrationsCollection.find(query).toArray()
+      res.send(result)
+    })
+
     // Add a new registration
     app.post("/registrations", async (req, res) => {
       const registration = req.body
       registration.paymentStatus = "unpaid"
       registration.confirmationStatus = "pending"
-      registration.createdAt = new Date().toISOString() 
+      registration.createdAt = new Date().toISOString() // Add creation timestamp
       try {
         const insertResult = await registrationsCollection.insertOne(registration)
         // Increment participant count in the corresponding camp
@@ -202,24 +222,18 @@ async function run() {
       }
     })
 
-     // Get registrations by camp ID (for organizers to manage registered camps)
-    app.get("/registrations/camp/:campId", async (req, res) => {
-      const campId = req.params.campId
-      const query = { camp_id: campId }
-      const result = await registrationsCollection.find(query).toArray()
-      res.send(result)
-    })
-
-    // Get all registrations or by participant email
-    app.get("/registrations", async (req, res) => {
-      const email = req.query.email
-      try {
-        const filter = email ? { participant_email: email } : {} // Filter by email if provided
-        const result = await registrationsCollection.find(filter).toArray()
-        res.send(result)
-      } catch (err) {
-        res.status(500).send({ message: "Failed to fetch registrations", error: err })
+    // Update registration status (e.g., confirmed, cancelled)
+    app.patch("/registrations/:id", async (req, res) => {
+      const id = req.params.id
+      const { status } = req.body
+      const filter = { _id: new ObjectId(id) }
+      const updateDoc = {
+        $set: {
+          status: status,
+        },
       }
+      const result = await registrationsCollection.updateOne(filter, updateDoc)
+      res.send(result)
     })
 
    
