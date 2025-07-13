@@ -236,7 +236,20 @@ async function run() {
       res.send(result)
     })
 
-   
+    // Delete a registration
+    app.delete("/registrations/:id", async (req, res) => {
+      const id = req.params.id
+      const query = { _id: new ObjectId(id) }
+      const registration = await registrationsCollection.findOne(query)
+      const result = await registrationsCollection.deleteOne(query)
+
+      // Decrement participant_count in camps collection if registration was deleted
+      if (result.deletedCount > 0 && registration) {
+        const campId = registration.camp_id
+        await campsCollection.updateOne({ _id: new ObjectId(campId) }, { $inc: { participant_count: -1 } })
+      }
+      res.send(result)
+    })
 
 
     // Send a ping to confirm a successful connection
