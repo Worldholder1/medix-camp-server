@@ -91,7 +91,12 @@ async function run() {
       res.send(result)
     })
 
-    
+    // Get user role by email
+    app.get("/users/role/:email", async (req, res) => {
+      const email = req.params.email
+      const user = await usersCollection.findOne({ email: email })
+      res.send({ role: user?.role || "user" })
+    })
 
     // ====================================================================
     // Camp Related APIs
