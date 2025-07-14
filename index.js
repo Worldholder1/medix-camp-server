@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const Stripe = require("stripe")
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -12,6 +13,9 @@ dotenv.config();
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Initialize Stripe with your secret key
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY)
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.j1rskl2.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -33,6 +37,8 @@ async function run() {
     const usersCollection = db.collection("users");
     const campsCollection = db.collection("camps");
     const registrationsCollection = db.collection("registrations");
+    const paymentsCollection = db.collection("payments");
+    const feedbacksCollection = db.collection("feedbacks");
 
     // ====================================================================
     // User Related APIs
@@ -77,7 +83,7 @@ async function run() {
     // Update user profile (Organizer/Participant)
     app.put("/users/:id", async (req, res) => {
       const id = req.params.id
-      const { name, email, photo, phone } = req.body 
+      const { name, email, photo, phone } = req.body
       const filter = { _id: new ObjectId(id) }
       const updateDoc = {
         $set: {
@@ -180,17 +186,17 @@ async function run() {
     // Registration Related APIs
     // ====================================================================
 
-     // Get all registrations or by participant email
+    // Get all registrations or by participant email
     app.get("/registrations", async (req, res) => {
-      const email = req.query.email
+      const email = req.query.email;
       try {
-        const filter = email ? { participant_email: email } : {} // Filter by email if provided
-        const result = await registrationsCollection.find(filter).toArray()
-        res.send(result)
+        const filter = email ? { participantEmail: email } : {}; // ✅ corrected field name
+        const result = await registrationsCollection.find(filter).toArray();
+        res.send(result);
       } catch (err) {
-        res.status(500).send({ message: "Failed to fetch registrations", error: err })
+        res.status(500).send({ message: "Failed to fetch registrations", error: err });
       }
-    })
+    });
 
     // Get registrations by camp ID (for organizers to manage registered camps)
     app.get("/registrations/camp/:campId", async (req, res) => {
@@ -222,6 +228,18 @@ async function run() {
       }
     })
 
+    // ✅ ADDED: Get a single registration by ID
+    app.get("/registrations/:id", async (req, res) => {
+      const id = req.params.id;
+      try {
+        const result = await registrationsCollection.findOne({ _id: new ObjectId(id) });
+        if (!result) return res.status(404).send({ message: "Registration not found" });
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ message: "Failed to fetch registration", error: err });
+      }
+    });
+
     // Update registration status (e.g., confirmed, cancelled)
     app.patch("/registrations/:id", async (req, res) => {
       const id = req.params.id
@@ -250,6 +268,116 @@ async function run() {
       }
       res.send(result)
     })
+
+    // ====================================================================
+    // Payment Related APIs
+    // ====================================================================
+
+    // Get all payments or by participant email
+    app.get("/payments", async (req, res) => {
+      const email = req.query.email
+      if (email) {
+        const query = { participantEmail: email }
+        const result = await paymentsCollection.find(query).toArray()
+        return res.send(result)
+      }
+      const result = await paymentsCollection.find().toArray()
+      res.send(result)
+    })
+
+    // ✅ ADDED: Update payment info for a registration
+    app.patch("/registrations/:id/payment", async (req, res) => {
+      const id = req.params.id;
+      const paymentInfo = req.body;
+
+      try {
+        // ✅ Validate incoming data
+        if (!paymentInfo.transactionId || !paymentInfo.paymentStatus || !paymentInfo.paymentDate) {
+          return res.status(400).send({ message: "Missing required payment info" });
+        }
+
+        // ✅ Update registration document with payment info
+        const registrationUpdateResult = await registrationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              paymentStatus: paymentInfo.paymentStatus,
+              transactionId: paymentInfo.transactionId,
+              paymentDate: paymentInfo.paymentDate,
+              confirmationStatus: "confirmed",
+            },
+          }
+        );
+
+        // ✅ Fetch full registration info (needed for payment doc)
+        const registration = await registrationsCollection.findOne({ _id: new ObjectId(id) });
+
+        if (!registration) {
+          return res.status(404).send({ message: "Registration not found for payment insertion" });
+        }
+
+        // ✅ Construct full payment document
+        const fullPaymentDoc = {
+          participantEmail: registration.participantEmail,
+          campName: registration.campName,
+          amount: registration.campFees || paymentInfo.amount || 0,
+          paymentStatus: paymentInfo.paymentStatus,
+          confirmationStatus: "confirmed",
+          transactionId: paymentInfo.transactionId,
+          paymentDate: paymentInfo.paymentDate,
+        };
+
+        // ✅ Insert into payments collection
+        const paymentInsertResult = await paymentsCollection.insertOne(fullPaymentDoc);
+
+        // ✅ Promote user to participant if still "user"
+        const user = await usersCollection.findOne({ email: registration.participantEmail });
+        if (user && user.role === "user") {
+          await usersCollection.updateOne(
+            { email: registration.participantEmail },
+            { $set: { role: "participant" } }
+          );
+        }
+
+        // ✅ Respond with both update and insert results
+        res.send({
+          message: "Payment recorded successfully",
+          registrationUpdate: registrationUpdateResult,
+          paymentInsert: paymentInsertResult,
+        });
+      } catch (err) {
+        console.error("❌ Failed to update payment and insert into payments:", err);
+        res.status(500).send({ message: "Failed to update payment", error: err });
+      }
+    });
+
+
+
+    app.post("/create-payment-intent", async (req, res) => {
+      const { amount } = req.body;
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount, // amount in cents
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+        res.send({ clientSecret: paymentIntent.client_secret });
+      } catch (err) {
+        res.status(500).send({ message: "Failed to create payment intent", error: err });
+      }
+    });
+
+
+    // Add a new payment
+    app.post("/payments", async (req, res) => {
+      const payment = req.body
+      const result = await paymentsCollection.insertOne(payment)
+      res.send(result)
+    })
+
+    
+
+
 
 
     // Send a ping to confirm a successful connection
