@@ -398,6 +398,39 @@ async function run() {
       res.send(result)
     })
 
+    // ====================================================================
+    // Analytics Related APIs
+    // ====================================================================
+
+    // Analytics API (Example - can be expanded)
+    app.get("/analytics/dashboard", async (req, res) => {
+      const totalUsers = await usersCollection.countDocuments()
+      const totalCamps = await campsCollection.countDocuments()
+      const totalRegistrations = await registrationsCollection.countDocuments()
+      const totalRevenue = await paymentsCollection
+        .aggregate([
+          {
+            $group: {
+              _id: null,
+              total: { $sum: "$amount" },
+            },
+          },
+        ])
+        .toArray()
+
+      res.send({
+        totalUsers,
+        totalCamps,
+        totalRegistrations,
+        totalRevenue: totalRevenue.length > 0 ? totalRevenue[0].total : 0,
+      })
+    })
+
+    // Example: Get total number of registered camps
+    app.get("/analytics/registered-camps-count", async (req, res) => {
+      const count = await registrationsCollection.countDocuments()
+      res.send({ count })
+    })
 
 
 
