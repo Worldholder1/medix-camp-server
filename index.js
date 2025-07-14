@@ -375,7 +375,31 @@ async function run() {
       res.send(result)
     })
 
-    
+    // ====================================================================
+    // Feedback Related APIs
+    // ====================================================================
+
+    // Get all feedbacks or by camp ID
+    app.get("/feedbacks", async (req, res) => {
+      const campId = req.query.campId
+      if (campId) {
+        const query = { camp_id: campId }
+        const result = await feedbacksCollection.find(query).toArray()
+        return res.send(result)
+      }
+      const result = await feedbacksCollection.find().toArray()
+      res.send(result)
+    })
+
+    // Add new feedback
+    app.post("/feedbacks", async (req, res) => {
+      const feedback = req.body
+      const result = await feedbacksCollection.insertOne(feedback)
+      res.send(result)
+    })
+
+
+
 
 
 
