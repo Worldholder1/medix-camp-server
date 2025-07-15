@@ -31,7 +31,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const db = client.db("medixCampDB");
     const usersCollection = db.collection("users");
@@ -190,7 +190,7 @@ async function run() {
     app.get("/registrations", async (req, res) => {
       const email = req.query.email;
       try {
-        const filter = email ? { participantEmail: email } : {}; // ✅ corrected field name
+        const filter = email ? { participantEmail: email } : {}; 
         const result = await registrationsCollection.find(filter).toArray();
         res.send(result);
       } catch (err) {
@@ -211,7 +211,7 @@ async function run() {
       const registration = req.body
       registration.paymentStatus = "unpaid"
       registration.confirmationStatus = "pending"
-      registration.createdAt = new Date().toISOString() // Add creation timestamp
+      registration.createdAt = new Date().toISOString() 
       try {
         const insertResult = await registrationsCollection.insertOne(registration)
         // Increment participant count in the corresponding camp
@@ -357,7 +357,7 @@ async function run() {
       const { amount } = req.body;
       try {
         const paymentIntent = await stripe.paymentIntents.create({
-          amount, // amount in cents
+          amount, 
           currency: "usd",
           payment_method_types: ["card"],
         });
