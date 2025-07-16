@@ -1,8 +1,10 @@
 const dotenv = require('dotenv');
+
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const Stripe = require("stripe")
+
 const admin = require("firebase-admin");
 
 const app = express();
@@ -18,12 +20,18 @@ app.use(express.json());
 
 
 
-const decodedKey = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8');
+const decodedKey = Buffer.from(process.env.FB_SERVICE_KEYS, 'base64').toString('utf8');
 const serviceAccount = JSON.parse(decodedKey);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
+
+// const serviceAccount = require("./firebase-admin-key.json");
+
+// admin.initializeApp({
+//     credential: admin.credential.cert(serviceAccount)
+// });
 
 
 // Initialize Stripe with your secret key
@@ -551,4 +559,6 @@ app.get("/", (req, res) => {
   res.send("Medix Camp server is running");
 });
 
-module.exports = app;
+app.listen(port, () => {
+    console.log(`Server is listening on port ${port}`);
+});
