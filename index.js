@@ -1,6 +1,6 @@
+const dotenv = require('dotenv');
 const express = require('express');
 const cors = require('cors');
-const dotenv = require('dotenv');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const Stripe = require("stripe")
 const admin = require("firebase-admin");
@@ -282,7 +282,7 @@ async function run() {
     });
 
     // Get registrations by camp ID (for organizers to manage registered camps)
-    app.get("/registrations/camp/:campId", verifyFBToken, verifyOrganizer, async (req, res) => {
+    app.get("/registrations/camps/:campId", verifyFBToken, verifyOrganizer, async (req, res) => {
       const campId = req.params.campId
       const query = { camp_id: campId }
       const result = await registrationsCollection.find(query).toArray()
@@ -537,8 +537,8 @@ async function run() {
 
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
@@ -551,6 +551,4 @@ app.get("/", (req, res) => {
   res.send("Medix Camp server is running");
 });
 
-app.listen(port, () => {
-  console.log(` Server listening on port ${port}`);
-});
+module.exports = app;
