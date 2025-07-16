@@ -36,6 +36,13 @@ async function run() {
     const db = client.db("medixCampDB");
     const usersCollection = db.collection("users");
     const campsCollection = db.collection("camps");
+
+    await campsCollection.updateMany(
+      { participant_count: { $exists: false } },
+      { $set: { participant_count: 0 } }
+    );
+
+
     const registrationsCollection = db.collection("registrations");
     const paymentsCollection = db.collection("payments");
     const feedbacksCollection = db.collection("feedbacks");
@@ -67,7 +74,8 @@ async function run() {
 
     // Create a new user (on registration/login)
     app.post("/users", async (req, res) => {
-      const user = req.body
+      const user = req.body;
+      user.email = user.email.toLowerCase();  // **Normalize email to lowercase here**
       user.role = "user"
       user.created_at = new Date().toISOString()
       user.last_log_in = new Date().toISOString()
@@ -81,28 +89,50 @@ async function run() {
     })
 
     // Update user profile (Organizer/Participant)
-    app.put("/users/:id", async (req, res) => {
-      const id = req.params.id
-      const { name, email, photo, phone } = req.body
-      const filter = { _id: new ObjectId(id) }
-      const updateDoc = {
-        $set: {
-          name: name,
-          email: email,
-          photo: photo,
-          phone: phone, // Phone field included for update
-        },
+    app.patch("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const { name, photo, phone } = req.body;
+
+      if (!name && !photo && !phone) {
+        return res.status(400).send({ message: "No update data provided" });
       }
-      const result = await usersCollection.updateOne(filter, updateDoc)
-      res.send(result)
-    })
+
+      try {
+        const filter = { email };
+        const updateDoc = { $set: {} };
+
+        if (name) updateDoc.$set.name = name;
+        if (photo) updateDoc.$set.photo = photo;
+        if (phone) updateDoc.$set.phone = phone;
+
+        const result = await usersCollection.updateOne(filter, updateDoc);
+        const updatedUser = await usersCollection.findOne(filter);
+
+        if (!updatedUser) {
+          return res.status(404).send({ message: "User not found" });
+        }
+
+        res.send({
+          message:
+            result.modifiedCount > 0
+              ? "Profile updated successfully"
+              : "No changes made, but profile is valid",
+          user: updatedUser,
+        });
+      } catch (error) {
+        console.error("❌ Error updating profile:", error);
+        res.status(500).send({ message: "Failed to update profile", error });
+      }
+    });
 
     // Get user role by email
     app.get("/users/role/:email", async (req, res) => {
-      const email = req.params.email
-      const user = await usersCollection.findOne({ email: email })
-      res.send({ role: user?.role || "user" })
-    })
+      const email = req.params.email;
+      const user = await usersCollection.findOne({
+        email: { $regex: `^${email}$`, $options: "i" }
+      });
+      res.send({ role: user?.role || "user" });
+    });
 
     // ====================================================================
     // Camp Related APIs
@@ -131,16 +161,23 @@ async function run() {
       }
     })
 
-    // Add a new camp (Organizer)
     app.post("/camps", async (req, res) => {
-      const camp = req.body
+      const camp = req.body;
+
       if (!camp.title || !camp.date || !camp.time || !camp.images?.length) {
-        return res.status(400).send({ message: "Missing required fields" })
+        return res.status(400).send({ message: "Missing required fields" });
       }
-      camp.createdAt = new Date().toISOString() // Add creation timestamp
-      const result = await campsCollection.insertOne(camp)
-      res.send(result)
-    })
+
+      camp.createdAt = new Date().toISOString(); // Timestamp
+      camp.participant_count = 0; // Required for count increment to work
+
+      try {
+        const result = await campsCollection.insertOne(camp);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to add camp", error });
+      }
+    });
 
     // Update a camp (Organizer)
     app.put("/camps/:id", async (req, res) => {
@@ -190,7 +227,7 @@ async function run() {
     app.get("/registrations", async (req, res) => {
       const email = req.query.email;
       try {
-        const filter = email ? { participantEmail: email } : {}; 
+        const filter = email ? { participantEmail: email } : {};
         const result = await registrationsCollection.find(filter).toArray();
         res.send(result);
       } catch (err) {
@@ -206,29 +243,32 @@ async function run() {
       res.send(result)
     })
 
-    // Add a new registration
     app.post("/registrations", async (req, res) => {
-      const registration = req.body
-      registration.paymentStatus = "unpaid"
-      registration.confirmationStatus = "pending"
-      registration.createdAt = new Date().toISOString() 
+      const registration = req.body;
+      registration.paymentStatus = "unpaid";
+      registration.confirmationStatus = "pending";
+      registration.createdAt = new Date().toISOString();
+
       try {
-        const insertResult = await registrationsCollection.insertOne(registration)
-        // Increment participant count in the corresponding camp
+        const insertResult = await registrationsCollection.insertOne(registration);
+
+        //  Use registration.campId (not camp_id) and cast to ObjectId
         const updateResult = await campsCollection.updateOne(
-          { _id: new ObjectId(registration.camp_id) },
-          { $inc: { participant_count: 1 } },
-        )
+          { _id: new ObjectId(registration.campId) },
+          { $inc: { participant_count: 1 } }
+        );
+
         res.send({
           registrationId: insertResult.insertedId,
           updatedCount: updateResult.modifiedCount,
-        })
+        });
       } catch (error) {
-        res.status(500).send({ message: "Failed to register", error })
+        console.error("❌ Registration error:", error);
+        res.status(500).send({ message: "Failed to register", error });
       }
-    })
+    });
 
-    // ✅ ADDED: Get a single registration by ID
+    //  Get a single registration by ID
     app.get("/registrations/:id", async (req, res) => {
       const id = req.params.id;
       try {
@@ -242,17 +282,15 @@ async function run() {
 
     // Update registration status (e.g., confirmed, cancelled)
     app.patch("/registrations/:id", async (req, res) => {
-      const id = req.params.id
-      const { status } = req.body
-      const filter = { _id: new ObjectId(id) }
-      const updateDoc = {
-        $set: {
-          status: status,
-        },
-      }
-      const result = await registrationsCollection.updateOne(filter, updateDoc)
-      res.send(result)
-    })
+      const id = req.params.id;
+      const { confirmationStatus } = req.body;
+
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = { $set: { confirmationStatus } };
+
+      const result = await registrationsCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
 
     // Delete a registration
     app.delete("/registrations/:id", async (req, res) => {
@@ -285,69 +323,60 @@ async function run() {
       res.send(result)
     })
 
-    // ✅ ADDED: Update payment info for a registration
+    // Update payment info for a registration
     app.patch("/registrations/:id/payment", async (req, res) => {
       const id = req.params.id;
-      const paymentInfo = req.body;
+      const { transactionId, paymentStatus, paymentDate, amount } = req.body;
+
+      if (!transactionId || !paymentStatus || !paymentDate) {
+        return res.status(400).send({ message: "Missing required payment info" });
+      }
 
       try {
-        // ✅ Validate incoming data
-        if (!paymentInfo.transactionId || !paymentInfo.paymentStatus || !paymentInfo.paymentDate) {
-          return res.status(400).send({ message: "Missing required payment info" });
-        }
-
-        // ✅ Update registration document with payment info
-        const registrationUpdateResult = await registrationsCollection.updateOne(
+        // Update registration
+        const registrationUpdate = await registrationsCollection.updateOne(
           { _id: new ObjectId(id) },
           {
             $set: {
-              paymentStatus: paymentInfo.paymentStatus,
-              transactionId: paymentInfo.transactionId,
-              paymentDate: paymentInfo.paymentDate,
+              paymentStatus,
+              transactionId,
+              paymentDate,
               confirmationStatus: "confirmed",
             },
           }
         );
 
-        // ✅ Fetch full registration info (needed for payment doc)
+        //  Fetch updated registration
         const registration = await registrationsCollection.findOne({ _id: new ObjectId(id) });
+        if (!registration) return res.status(404).send({ message: "Registration not found" });
 
-        if (!registration) {
-          return res.status(404).send({ message: "Registration not found for payment insertion" });
-        }
-
-        // ✅ Construct full payment document
-        const fullPaymentDoc = {
+        //  Insert payment record
+        const paymentDoc = {
           participantEmail: registration.participantEmail,
           campName: registration.campName,
-          amount: registration.campFees || paymentInfo.amount || 0,
-          paymentStatus: paymentInfo.paymentStatus,
+          amount: registration.campFees || amount || 0,
+          paymentStatus,
           confirmationStatus: "confirmed",
-          transactionId: paymentInfo.transactionId,
-          paymentDate: paymentInfo.paymentDate,
+          transactionId,
+          paymentDate,
         };
+        const paymentInsert = await paymentsCollection.insertOne(paymentDoc);
 
-        // ✅ Insert into payments collection
-        const paymentInsertResult = await paymentsCollection.insertOne(fullPaymentDoc);
+        //  Update user role to "participant" — always
+        const roleUpdate = await usersCollection.updateOne(
+          { email: { $regex: `^${registration.participantEmail}$`, $options: "i" } },
+          { $set: { role: "participant" } }
+        );
 
-        // ✅ Promote user to participant if still "user"
-        const user = await usersCollection.findOne({ email: registration.participantEmail });
-        if (user && user.role === "user") {
-          await usersCollection.updateOne(
-            { email: registration.participantEmail },
-            { $set: { role: "participant" } }
-          );
-        }
-
-        // ✅ Respond with both update and insert results
         res.send({
-          message: "Payment recorded successfully",
-          registrationUpdate: registrationUpdateResult,
-          paymentInsert: paymentInsertResult,
+          message: "Payment and role update successful",
+          registrationUpdate,
+          paymentInsert,
+          roleUpdate,
         });
-      } catch (err) {
-        console.error("❌ Failed to update payment and insert into payments:", err);
-        res.status(500).send({ message: "Failed to update payment", error: err });
+      } catch (error) {
+        console.error("❌ Payment update failed:", error);
+        res.status(500).send({ message: "Payment update failed", error });
       }
     });
 
@@ -357,7 +386,7 @@ async function run() {
       const { amount } = req.body;
       try {
         const paymentIntent = await stripe.paymentIntents.create({
-          amount, 
+          amount,
           currency: "usd",
           payment_method_types: ["card"],
         });
