@@ -5,7 +5,6 @@ const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const Stripe = require("stripe")
 
-const admin = require("firebase-admin");
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -18,20 +17,6 @@ app.use(cors());
 app.use(express.json());
 
 
-
-
-const decodedKey = Buffer.from(process.env.FB_SERVICE_KEYS, 'base64').toString('utf8');
-const serviceAccount = JSON.parse(decodedKey);
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
-
-// const serviceAccount = require("./firebase-admin-key.json");
-
-// admin.initializeApp({
-//     credential: admin.credential.cert(serviceAccount)
-// });
 
 
 // Initialize Stripe with your secret key
@@ -56,49 +41,10 @@ async function run() {
     const db = client.db("medixCampDB");
     const usersCollection = db.collection("users");
     const campsCollection = db.collection("camps");
-
-    await campsCollection.updateMany(
-      { participant_count: { $exists: false } },
-      { $set: { participant_count: 0 } }
-    );
-
-
     const registrationsCollection = db.collection("registrations");
     const paymentsCollection = db.collection("payments");
     const feedbacksCollection = db.collection("feedbacks");
 
-
-    // custom middlewares
-    const verifyFBToken = async (req, res, next) => {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) {
-        return res.status(401).send({ message: 'unauthorized access' })
-      }
-      const token = authHeader.split(' ')[1];
-      if (!token) {
-        return res.status(401).send({ message: 'unauthorized access' })
-      }
-
-      // verify the token
-      try {
-        const decoded = await admin.auth().verifyIdToken(token);
-        req.decoded = decoded;
-        next();
-      }
-      catch (error) {
-        return res.status(403).send({ message: 'forbidden access' })
-      }
-    }
-
-    // Add this role-check middleware below your verifyFBToken middleware
-    const verifyOrganizer = async (req, res, next) => {
-      const email = req.decoded.email;
-      const user = await usersCollection.findOne({ email: email.toLowerCase() });
-      if (user?.role !== 'organizer') {
-        return res.status(403).send({ message: "Forbidden: Organizer only" });
-      }
-      next();
-    };
 
 
     // ====================================================================
@@ -106,7 +52,7 @@ async function run() {
     // ====================================================================
 
     // Get all users or a specific user by email
-    app.get("/users", verifyFBToken, async (req, res) => {
+    app.get("/users", async (req, res) => {
       const email = req.query.email
       if (email) {
         const query = { email: email }
@@ -119,7 +65,7 @@ async function run() {
     })
 
     // Get a single user by email (for client-side hooks)
-    app.get("/users/:email", verifyFBToken, async (req, res) => {
+    app.get("/users/:email", async (req, res) => {
       const email = req.params.email
       const query = { email: email }
       const user = await usersCollection.findOne(query)
@@ -143,7 +89,7 @@ async function run() {
     })
 
     // Update user profile (Organizer/Participant)
-    app.patch("/users/:email", verifyFBToken, async (req, res) => {
+    app.patch("/users/:email", async (req, res) => {
       const email = req.params.email;
       const { name, photo, phone } = req.body;
 
@@ -180,7 +126,7 @@ async function run() {
     });
 
     // Get user role by email
-    app.get("/users/role/:email", verifyFBToken, async (req, res) => {
+    app.get("/users/role/:email", async (req, res) => {
       const email = req.params.email;
       const user = await usersCollection.findOne({
         email: { $regex: `^${email}$`, $options: "i" }
@@ -215,7 +161,7 @@ async function run() {
       }
     })
 
-    app.post("/camps", verifyFBToken, verifyOrganizer, async (req, res) => {
+    app.post("/camps", async (req, res) => {
       const camp = req.body;
 
       if (!camp.title || !camp.date || !camp.time || !camp.images?.length) {
@@ -234,7 +180,7 @@ async function run() {
     });
 
     // Update a camp (Organizer)
-    app.put("/camps/:id", verifyFBToken, verifyOrganizer, async (req, res) => {
+    app.put("/camps/:id", verifyOrganizer, async (req, res) => {
       const id = req.params.id
       const updatedCamp = req.body
       const filter = { _id: new ObjectId(id) }
@@ -256,7 +202,7 @@ async function run() {
     })
 
     // Delete a camp (Organizer)
-    app.delete("/camps/:id", verifyFBToken, verifyOrganizer, async (req, res) => {
+    app.delete("/camps/:id", async (req, res) => {
       const id = req.params.id
       const query = { _id: new ObjectId(id) }
       try {
@@ -278,7 +224,7 @@ async function run() {
     // ====================================================================
 
     // Get all registrations or by participant email
-    app.get("/registrations", verifyFBToken, async (req, res) => {
+    app.get("/registrations", async (req, res) => {
       const email = req.query.email;
       try {
         const filter = email ? { participantEmail: email } : {};
@@ -290,14 +236,14 @@ async function run() {
     });
 
     // Get registrations by camp ID (for organizers to manage registered camps)
-    app.get("/registrations/camps/:campId", verifyFBToken, verifyOrganizer, async (req, res) => {
+    app.get("/registrations/camps/:campId", verifyOrganizer, async (req, res) => {
       const campId = req.params.campId
       const query = { camp_id: campId }
       const result = await registrationsCollection.find(query).toArray()
       res.send(result)
     })
 
-    app.post("/registrations", verifyFBToken, async (req, res) => {
+    app.post("/registrations", async (req, res) => {
       const registration = req.body;
       registration.paymentStatus = "unpaid";
       registration.confirmationStatus = "pending";
@@ -323,7 +269,7 @@ async function run() {
     });
 
     //  Get a single registration by ID
-    app.get("/registrations/:id", verifyFBToken, async (req, res) => {
+    app.get("/registrations/:id", async (req, res) => {
       const id = req.params.id;
       try {
         const result = await registrationsCollection.findOne({ _id: new ObjectId(id) });
@@ -335,7 +281,7 @@ async function run() {
     });
 
     // Update registration status (e.g., confirmed, cancelled)
-    app.patch("/registrations/:id", verifyFBToken, async (req, res) => {
+    app.patch("/registrations/:id", async (req, res) => {
       const id = req.params.id;
       const { confirmationStatus } = req.body;
 
@@ -347,7 +293,7 @@ async function run() {
     });
 
     // Delete a registration
-    app.delete("/registrations/:id", verifyFBToken, async (req, res) => {
+    app.delete("/registrations/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
 
@@ -390,7 +336,7 @@ async function run() {
     // ====================================================================
 
     // Get all payments or by participant email
-    app.get("/payments", verifyFBToken, async (req, res) => {
+    app.get("/payments", async (req, res) => {
       const email = req.query.email
       if (email) {
         const query = { participantEmail: email }
@@ -402,7 +348,7 @@ async function run() {
     })
 
     // Update payment info for a registration
-    app.patch("/registrations/:id/payment", verifyFBToken, async (req, res) => {
+    app.patch("/registrations/:id/payment", async (req, res) => {
       const id = req.params.id;
       const { transactionId, paymentStatus, paymentDate, amount } = req.body;
 
@@ -476,7 +422,7 @@ async function run() {
 
 
     // Add a new payment
-    app.post("/payments", verifyFBToken, async (req, res) => {
+    app.post("/payments",  async (req, res) => {
       const payment = req.body
       const result = await paymentsCollection.insertOne(payment)
       res.send(result)
@@ -499,7 +445,7 @@ async function run() {
     })
 
     // Add new feedback
-    app.post("/feedbacks", verifyFBToken, async (req, res) => {
+    app.post("/feedbacks", async (req, res) => {
       const feedback = req.body
       const result = await feedbacksCollection.insertOne(feedback)
       res.send(result)
@@ -510,7 +456,7 @@ async function run() {
     // ====================================================================
 
     // Analytics API (Example - can be expanded)
-    app.get("/analytics/dashboard", verifyFBToken, async (req, res) => {
+    app.get("/analytics/dashboard", async (req, res) => {
       const totalUsers = await usersCollection.countDocuments()
       const totalCamps = await campsCollection.countDocuments()
       const totalRegistrations = await registrationsCollection.countDocuments()
@@ -534,7 +480,7 @@ async function run() {
     })
 
     // Example: Get total number of registered camps
-    app.get("/analytics/registered-camps-count", verifyFBToken, async (req, res) => {
+    app.get("/analytics/registered-camps-count", async (req, res) => {
       const count = await registrationsCollection.countDocuments()
       res.send({ count })
     })
@@ -559,6 +505,8 @@ app.get("/", (req, res) => {
   res.send("Medix Camp server is running");
 });
 
-app.listen(port, () => {
-    console.log(`Server is listening on port ${port}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`✅ Server is listening on port ${port}`);
+  });
+}
