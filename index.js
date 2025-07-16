@@ -180,7 +180,7 @@ async function run() {
     });
 
     // Update a camp (Organizer)
-    app.put("/camps/:id", verifyOrganizer, async (req, res) => {
+    app.put("/camps/:id", async (req, res) => {
       const id = req.params.id
       const updatedCamp = req.body
       const filter = { _id: new ObjectId(id) }
@@ -236,7 +236,7 @@ async function run() {
     });
 
     // Get registrations by camp ID (for organizers to manage registered camps)
-    app.get("/registrations/camps/:campId", verifyOrganizer, async (req, res) => {
+    app.get("/registrations/camps/:campId", async (req, res) => {
       const campId = req.params.campId
       const query = { camp_id: campId }
       const result = await registrationsCollection.find(query).toArray()
@@ -505,8 +505,6 @@ app.get("/", (req, res) => {
   res.send("Medix Camp server is running");
 });
 
-if (require.main === module) {
-  app.listen(port, () => {
-    console.log(`✅ Server is listening on port ${port}`);
-  });
-}
+app.listen(port, () => {
+    console.log(`WhereIsIt website server is running port ${port} `)
+})
